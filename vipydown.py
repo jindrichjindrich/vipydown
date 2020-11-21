@@ -37,6 +37,7 @@ def run_cgi():
     print()
     print(f"""
 <html>
+<!-- Run in cmd window "python {SCRIPT_NAME} help" to get help on {SCRIPT_NAME} -->
 <head>
     <title>Video (using Python) Download </title>
 </head>
@@ -117,8 +118,9 @@ def run_server():
     class Handler(server.CGIHTTPRequestHandler):
         cgi_directories = ['/', '.']
     kwargs = get_kwargs()
+    suffix = get_now_suffix()
     log.addHandler(logging.FileHandler(
-        os.path.join(kwargs['log_dir'], '{SCRIPT_BASE}_server_{}.log'.format(get_now_suffix()) )
+        os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_server_{suffix}.log')
     ))
 
     handler_class = Handler
@@ -152,7 +154,8 @@ def run_download(urls=[], skip_install=False):
             if isinstance(urls, str):
                 urls = [u.strip() for u in urls.split()]
             cmdline.extend(urls)
-        log_fn = os.path.join(kwargs['log_dir'], 'vipydown_download_{}.log'.format(get_now_suffix()))
+        suffix = get_now_suffix()
+        log_fn = os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_download_{suffix}.log')
         f = open(log_fn, 'a')
         try:
             proc = subprocess.Popen(cmdline, stdout=f, stderr=f)
@@ -213,14 +216,14 @@ sLinkFile = "{link_file}"
 Set oLink = oWS.CreateShortcut(sLinkFile)
     oLink.TargetPath = "{python_exe}"
     oLink.Arguments = "{SCRIPT_FULLNAME} server"
- '  oLink.Description = "vipydown server"
+ '  oLink.Description = "{SCRIPT_BASE} server"
  '  oLink.HotKey = "ALT+CTRL+V"
  '  oLink.IconLocation = "C:\Program Files\MyApp\MyProgram.EXE, 2"
  '  oLink.WindowStyle = "1"
     oLink.WorkingDirectory = "{ROOT_DIR}"
 oLink.Save
     """
-    vbs_fn = os.path.join(ROOT_DIR, 'vipydown_lnk.vbs')
+    vbs_fn = os.path.join(ROOT_DIR, f'{SCRIPT_BASE}_lnk.vbs')
     if not os.path.exists(vbs_fn):
         with open(vbs_fn, 'w') as f:
             f.write(VBS)
@@ -243,19 +246,19 @@ def run_setup():
 if __name__ == '__main__':
     arg = sys.argv[1] if sys.argv[1:] else ''
     if arg.lstrip('-') in ['help', 'h', '?']:
-        print('Usage: vipydown.py ACTION param1=value1 ...(python >= 3.6 required)')
-        print('       vipydown.py help - show this help text')
-        print('       vipydown.py server port=8000 host=  - run as cgi server')
-        print('       vipydown.py client port=8000 host=  - open web page pointing to the server')
-        print('       vipydown.py download URL1 [URL2 ...] - download the given youtube videos')
-        print('       vipydown.py install [upgrade=1] - install youtube_dl module')
-        print('                   called also by "server" (u=1) and "download"')
-        print('       vipydown.py make_lnk - create vipydown.lnk file and copy it')
-        print('                   to Windows startup folder (to autostart server)')
-        print('       vipydown.py setup - call install and make_lnk, ')
-        print('                           after PC restart it should work')
-        print('       vipydown.py ... (other or no ACTION) - run as cgi script')
-        print('                   if vipydown.lnk not found, "setup" is called first')
+        print(f'Usage: {SCRIPT_NAME} ACTION param1=value1 ...(python >= 3.6 required)')
+        print(f'       {SCRIPT_NAME} help - show this help text')
+        print(f'       {SCRIPT_NAME} server port=8000 host=  - run as cgi server')
+        print(f'       {SCRIPT_NAME} client port=8000 host=  - open web page pointing to the server')
+        print(f'       {SCRIPT_NAME} download URL1 [URL2 ...] - download the given youtube videos')
+        print(f'       {SCRIPT_NAME} install [upgrade=1] - install youtube_dl module')
+        print(f'                   called also by "server" (u=1) and "download"')
+        print(f'       {SCRIPT_NAME} make_lnk - create vipydown.lnk file and copy it')
+        print(f'                   to Windows startup folder (to autostart server)')
+        print(f'       {SCRIPT_NAME} setup - call install and make_lnk, ')
+        print(f'                           after PC restart it should work')
+        print(f'       {SCRIPT_NAME} ... (other or no ACTION) - run as cgi script')
+        print(f'                   if vipydown.lnk not found, "setup" is called first')
     elif arg == 'server':
         run_server()
     elif arg == 'client':
