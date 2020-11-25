@@ -59,8 +59,9 @@ def get_kwargs():
     ini_file = os.path.join(ROOT_DIR, SCRIPT_BASE + '.ini')
     kwargs = {}
     if os.path.exists(ini_file):
-        with open(ini_file) as f:
-            ikwargs = dict([l.strip().split('=', 1) for l in f.readlines() if l.count('=')])
+        with open(ini_file, 'br') as f:
+            text = f.read().decode('utf-8-sig')
+            ikwargs = dict([l.strip().split('=', 1) for l in text.split('\n') if l.count('=')])
         kwargs.update(ikwargs)
     ckwargs = dict([p.split('=', 1) for p in sys.argv[2:] if p.count('=')])
     kwargs.update(ckwargs)
@@ -193,28 +194,50 @@ def run_download(urls=[], skip_install=False):
 def get_lnk_filename():
     return os.path.join(ROOT_DIR, BASE_LNK)
 
-def run_make_lnk():
-    r"""Create Windows shortcut file for starting a vipydown server.
+def _get_lnk_dic():
+    base_lnk = SCRIPT_LNK
+    startup_dir = os.path.join("{APPDATA}".format(**os.environ), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    desktop_dir = os.path.join("{USERPROFILE}".format(**os.environ), 'Desktop')
+    desktop_lnk_file = os.path.join(desktop_dir, base_lnk)
+    startup_lnk_file = os.path.join(startup_dir, base_lnk)
+    lnk_file = get_lnk_filename() #os.path.join(ROOT_DIR, base_lnk)
+    python_exe = os.path.join(sys.prefix, 'python.exe')
+    vbs_file = os.path.join(ROOT_DIR, f'{SCRIPT_BASE}_lnk.vbs')
+    return locals().copy()
 
-    Create the vipydown.lnk only if it does not exist yet. Then copy it to startup folder
-    (if not present there yet)
+def run_rm_lnk():
+    f"""Remove all lnk files.
+    I.e., {SCRIPT_NAME} will think it was not installed yet. Also, remove
+    all the executable trash the {SCRIPT_NAME} makes if it will be removed.
+    """
+    dic = _get_lnk_dic()
+    for k in ['vbs_file', 'startup_lnk_file', 'desktop_lnk_file', 'lnk_file']:
+        if os.path.exists(dic[k]):
+            os.unlink(dic[k])
+            log.info('Removed file {}'.format(dic[k]))
+
+def run_make_lnk():
+    rf"""Create Windows shortcut file for starting a {SCRIPT_BASE} server.
+
+    Create the {SCRIPT_LNK} only if it does not exist yet. Then copy it to startup folder
+    (if not present there yet) and to the desktop (if it is not there yet)
 
     Startup folder:
     C:\Users\current_user\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\
+
+    Desktop folder:
+    C:\Users\current_user\Desktop
+
     See:
     https://superuser.com/questions/392061/how-to-make-a-shortcut-from-cmd
     """
-    base_lnk = SCRIPT_LNK
-    startup_dir = os.path.join("{APPDATA}".format(**os.environ), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-    startup_link_file = os.path.join(startup_dir, base_lnk)
-    link_file = get_lnk_filename() #os.path.join(ROOT_DIR, base_lnk)
-    python_exe = os.path.join(sys.prefix, 'python.exe')
+    dic = _get_lnk_dic()
 
     VBS = f"""
 Set oWS = WScript.CreateObject("WScript.Shell")
-sLinkFile = "{link_file}"
+sLinkFile = "{dic['lnk_file']}"
 Set oLink = oWS.CreateShortcut(sLinkFile)
-    oLink.TargetPath = "{python_exe}"
+    oLink.TargetPath = "{dic['python_exe']}"
     oLink.Arguments = "{SCRIPT_FULLNAME} server"
  '  oLink.Description = "{SCRIPT_BASE} server"
  '  oLink.HotKey = "ALT+CTRL+V"
@@ -223,15 +246,17 @@ Set oLink = oWS.CreateShortcut(sLinkFile)
     oLink.WorkingDirectory = "{ROOT_DIR}"
 oLink.Save
     """
-    vbs_fn = os.path.join(ROOT_DIR, f'{SCRIPT_BASE}_lnk.vbs')
-    if not os.path.exists(vbs_fn):
-        with open(vbs_fn, 'w') as f:
+    if not os.path.exists(dic['vbs_file']):
+        with open(dic['vbs_file'], 'w') as f:
             f.write(VBS)
-    if not os.path.exists(link_file):
-        res = subprocess.run(['cscript', vbs_fn], check=True, shell=True)
-        log.info('{} called returncode={}'.format(vbc_fn, res.returncode))
-    if not os.path.exists(startup_link_file):
-        shutil.copy(link_file, startup_link_file)
+        log.info('File {} created.'.format(dic['vbs_file']))
+    if not os.path.exists(dic['lnk_file']):
+        res = subprocess.run(['cscript', dic['vbs_file']], check=True, shell=True)
+        log.info('Creating {}, {} called returncode={}'.format(dic['lnk_file'], dic['vbs_file'], res.returncode))
+    for k in ['startup_lnk_file', 'desktop_lnk_file']:
+        if not os.path.exists(dic[k]):
+            shutil.copy(dic['lnk_file'], dic[k])
+            log.info('Copied {} to {}'.format(dic['lnk_file'], dic[k]))
 
 def get_lnk_filename():
     return os.path.join(ROOT_DIR, SCRIPT_LNK)
@@ -243,34 +268,62 @@ def run_setup():
     install(upgrade='1')
     run_make_lnk()
 
+def add_handler():
+    log.addHandler(logging.StreamHandler())
+    log.setLevel(logging.INFO)
+
 if __name__ == '__main__':
     arg = sys.argv[1] if sys.argv[1:] else ''
     if arg.lstrip('-') in ['help', 'h', '?']:
-        print(f'Usage: {SCRIPT_NAME} ACTION param1=value1 ...(python >= 3.6 required)')
-        print(f'       {SCRIPT_NAME} help - show this help text')
-        print(f'       {SCRIPT_NAME} server port=8000 host=  - run as cgi server')
-        print(f'       {SCRIPT_NAME} client port=8000 host=  - open web page pointing to the server')
-        print(f'       {SCRIPT_NAME} download URL1 [URL2 ...] - download the given youtube videos')
-        print(f'       {SCRIPT_NAME} install [upgrade=1] - install youtube_dl module')
-        print(f'                   called also by "server" (u=1) and "download"')
-        print(f'       {SCRIPT_NAME} make_lnk - create vipydown.lnk file and copy it')
-        print(f'                   to Windows startup folder (to autostart server)')
-        print(f'       {SCRIPT_NAME} setup - call install and make_lnk, ')
-        print(f'                           after PC restart it should work')
-        print(f'       {SCRIPT_NAME} ... (other or no ACTION) - run as cgi script')
-        print(f'                   if vipydown.lnk not found, "setup" is called first')
+        kwargs = get_kwargs()
+        print(f'Usage: python {SCRIPT_NAME} ACTION [param1=value1] ... (python >= 3.6 in PATH required)')
+        print(f'ACTIONs:')
+        print(f'  help - (or "[-]h", "[-]?") show this help text')
+        print( '  server [port={port}] [host={host}] [data_dir={data_dir}]'.format(**kwargs))
+        print( '      [log_dir={log_dir}] [download_dir={download_dir}] '.format(**kwargs))
+        print( '      - run as cgi web server (also calls "client" first)')
+        print(f'        the above parameters can be specified in {ROOT_DIR}\{SCRIPT_BASE}.ini file')
+        print( '  client [port={port}] [host={host}] ...  '.format(**kwargs))
+        print( '      - open web page pointing to the server')
+        print(f'  download URL1 [URL2 ...]')
+        print( '      - download the given youtube videos')
+        print(f'  install [upgrade=1] ')
+        print(f'      - install youtube_dl module')
+        print(f'        called also by "server" (upgrade=1) and "download"')
+        print(f'  make_lnk ')
+        print(f'      - create {SCRIPT_LNK} file and copy it')
+        print(f'        to user''s Windows startup folder and Desktop folder')
+        print(f'  setup ')
+        print(f'      - call install and make_lnk, ')
+        print(f'        after PC restart it should work')
+        print(f'  rm_lnk - remove all .lnk files made by make_lnk')
+        print(f'  ... (other or no ACTION)')
+        print(f'      - run as cgi script,')
+        print(f'        if {SCRIPT_LNK} not found, "setup" is called instead')
     elif arg == 'server':
+        add_handler()
         run_server()
     elif arg == 'client':
+        add_handler()
         run_client()
     elif arg == 'download':
+        add_handler()
         run_download(urls=sys.argv[2:])
     elif arg == 'install':
+        add_handler()
         run_install()
     elif arg == 'make_lnk':
+        add_handler()
         run_make_lnk()
+    elif arg == 'rm_lnk':
+        add_handler()
+        run_rm_lnk()
+    elif arg == 'setup':
+        add_handler()
+        run_setup()
     else:
         if not is_set_up():
+            add_handler()
             run_setup()
         else:
             run_cgi()
