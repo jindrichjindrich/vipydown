@@ -1,8 +1,4 @@
-﻿"""
-https://docs.python.org/3.8/library/cgi.html
-
-"""
-import os
+﻿import os
 import sys
 import glob
 import logging
@@ -11,12 +7,26 @@ import datetime
 import shutil
 from urllib import request
 
-log = logging.getLogger(__name__)
 SCRIPT_FULLNAME =  os.path.abspath(__file__)
 ROOT_DIR, SCRIPT_NAME = os.path.split(SCRIPT_FULLNAME)
 SCRIPT_BASE = os.path.splitext(SCRIPT_NAME)[0] # bare script name without an extension
 SCRIPT_LNK =  SCRIPT_BASE + '.lnk'
+VERSION = '1.0.0'
+f"""
+Python standalone script/module to launch local server/web browser gui
+for downloading youtube videos using third party youtube_dl module
 
+Run "python {SCRIPT_NAME} ?" for help.
+"""
+
+"""
+v1.0.0 2020-11-29
+- showing already downloaded files by parsing log files
+- allowing to use download_dir subfolder (to group similar files)
+
+"""
+
+log = logging.getLogger(__name__)
 try:
     import wingdbstub
 except ImportError:
@@ -215,20 +225,23 @@ def get_download_info(log_dir, download_dir):
     Using log files in the log_dir
     """
     lines = []
-    for log_file in sorted(glob.glob(os.path.join(log_dir, f'{SCRIPT_BASE}_download_*.log')), reverse=True):
+    for log_file in sorted(glob.glob(os.path.join(log_dir, f'{SCRIPT_BASE}_download_*.log')), reverse=True, key=lambda i: i.split('_')[-1]):
         #fn = os.path.join(log_dir, basefn)
         log.info(log_file)
         for download_info in get_downloads_info_from_log_file(log_file, download_dir):
             if not download_info['filename']:
                 continue
             rec = {}
-            rec['File'] = download_info['filename']
-            if download_info['download_subdir']:
-                rec['Subfolder'] = download_info['download_subdir']
+            s = download_info['download_subdir']
+            if s:
+                s = s + os.sep
+            rec['File'] = s + download_info['filename']
             if download_info['download_completed']:
-                rec['Downloaded'] = download_info['download_completed']
+                rec['Downloaded'] = str(download_info['download_completed'])[:19]
             else:
-                rec['Download started'] = download_info['download_started']
+                rec['Download started'] = str(download_info['download_started'])[:19]
+            if download_info['filesize']:
+                rec['Size'] = download_info['filesize']
             line = ' '.join(['<b>{}:</b> {}'.format(*kv) for kv in rec.items()])
             lines.append(line)
     return '<br />'.join(lines)
@@ -259,7 +272,7 @@ def run_install():
 def is_server_running(**kwargs):
     url = get_client_url(**kwargs)
     try:
-        f = request.urlopen(url)
+        f = request.urlopen(url, timeout=5)
         if f.status == 200:
             return True
     except:
@@ -267,7 +280,6 @@ def is_server_running(**kwargs):
     return False
 
 def run_server():
-    install(upgrade='1')
     import http.server as server
     server_class = server.HTTPServer
     class Handler(server.CGIHTTPRequestHandler):
@@ -275,19 +287,26 @@ def run_server():
 
     kwargs = get_kwargs()
     if is_server_running(**kwargs):
-        log.info('{SCRIPT_BASE} server is already running.')
+        log.info(f'{SCRIPT_BASE} server is already running.')
+        run_client()
         return
+    install(upgrade='1')
 
     suffix = get_now_suffix()
     log.addHandler(logging.FileHandler(
         os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_server_{suffix}.log')
     ))
+    now = datetime.datetime.now()
+    log.info(f'{SCRIPT_BASE} server starting {now}')
 
     handler_class = Handler
     server_address = (kwargs['host'], kwargs['port'])
     httpd = server_class(server_address, handler_class)
     run_client()
     httpd.serve_forever()
+
+    now = datetime.datetime.now()
+    log.info(f'{SCRIPT_BASE} server stopped {now}')
 
 def get_client_url(**kwargs):
     """Return url at which the server is accessible in web browser"""
@@ -300,6 +319,7 @@ def run_client():
     import webbrowser
     kwargs = get_kwargs()
     url = get_client_url(**kwargs)
+    log.info(f'Opening web browser at {url}')
     webbrowser.open(url)
 
 def run_download(urls=[], download_subdir='', skip_install=False):
@@ -441,6 +461,7 @@ if __name__ == '__main__':
     if arg.lstrip('-') in ['help', 'h', '?']:
         kwargs = get_kwargs()
         print(f'Usage: python {SCRIPT_NAME} ACTION [param1=value1] ... (python >= 3.6 in PATH required)')
+        print(f'Version: {VERSION}')
         print(f'ACTIONs:')
         print(f'  help - (or "[-]h", "[-]?") show this help text')
         print( '  server [port={port}] [host={host}] [data_dir={data_dir}]'.format(**kwargs))
