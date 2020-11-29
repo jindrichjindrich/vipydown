@@ -4,10 +4,12 @@ https://docs.python.org/3.8/library/cgi.html
 """
 import os
 import sys
+import glob
 import logging
 import subprocess
 import datetime
 import shutil
+from urllib import request
 
 log = logging.getLogger(__name__)
 SCRIPT_FULLNAME =  os.path.abspath(__file__)
@@ -28,11 +30,23 @@ def run_cgi():
 
     form = cgi.FieldStorage()
     urls_list = form.getlist('urls')
+    download_subdir = form.getvalue('download_subdir', '')
+    submit = form.getvalue('submit', '')
     urls = urls_list[0] if urls_list else ''
     urls = '\n'.join([u.strip() for u in urls.split() if u.strip()])
-    kwargs = get_kwargs()
+    kwargs = get_kwargs(download_subdir=download_subdir)
+
     if urls:
-        run_download(urls = urls.split(), skip_install=True)
+        run_download(urls = urls.split(), download_subdir=download_subdir, skip_install=True)
+        message = 'Started download of:\n{}'.format(urls)
+    else:
+        if submit:
+            message = 'No urls specified'
+        else:
+            message = ''
+
+    download_info = get_download_info(kwargs['log_dir'], kwargs['download_dir'])
+
     print('Content-Type: text/html')
     print()
     print(f"""
@@ -46,28 +60,44 @@ def run_cgi():
 <p>Enter the URLs (web addreses), one per line, of the Youtube videos to be downloaded to {kwargs['download_dir']} folder</p>
 <div>
   <form>
+    <div>Optional download subfolder: <input name="download_subdir" value="{download_subdir}" /></div>
     <div><textarea name="urls" rows="10" cols="80">{urls}</textarea></div>
-    <div><input type="submit" value="Download" /></div>
+    <div><input type="submit" name="submit" value="Download" /></div>
   </form>
 </div>
+<div id="message">{message}</div>
+<div id="download_info">{download_info}<div>
 </body>
 </html>
 """)
 
-def get_kwargs():
+def get_kwargs(**fkwargs):
+    """Get parameters common to all run_ methods
+
+    Gather the parameters values in the order (the later will remain):
+    - defaults
+    - ini file
+    - command line paramaters
+    - explicit fkwargs
+    """
     import sys
     ini_file = os.path.join(ROOT_DIR, SCRIPT_BASE + '.ini')
     kwargs = {}
+    # update first from inifile
     if os.path.exists(ini_file):
         with open(ini_file, 'br') as f:
             text = f.read().decode('utf-8-sig')
             ikwargs = dict([l.strip().split('=', 1) for l in text.split('\n') if l.count('=')])
         kwargs.update(ikwargs)
     ckwargs = dict([p.split('=', 1) for p in sys.argv[2:] if p.count('=')])
+    # update second from command line params
     kwargs.update(ckwargs)
+    # update last from the explicit get_kwargs params
+    kwargs.update(fkwargs)
 
     DEF = {'port': 8000, 'host': '', 'data_dir': os.getcwd(),
         'download_dir': os.path.join('{USERPROFILE}'.format(**os.environ), 'Downloads'),
+        'download_subdir': '',
         'log_dir': '', # 'log_dir' will be added
     }
     for k in DEF:
@@ -84,10 +114,124 @@ def get_kwargs():
         os.makedirs(kwargs['log_dir'])
     if not os.path.exists(kwargs['download_dir']):
         os.makedirs(kwargs['download_dir'])
+    if kwargs['download_subdir']:
+        kwargs['download_fulldir'] = os.path.join(kwargs['download_dir'], kwargs['download_subdir'])
+        if not os.path.exists(kwargs['download_fulldir']):
+            os.makedirs(kwargs['download_fulldir'])
+    else:
+        kwargs['download_fulldir'] = kwargs['download_dir']
     return kwargs
 
 def get_now_suffix():
     return datetime.datetime.now().isoformat()[:19].replace(':','-')
+
+def get_datetime_from_suffix(suffix):
+    """From the suffix = 'YYYY-MM-DDTHH-MM-SS' string get the Python datetime value"""
+    try:
+        dt = datetime.datetime.strptime(suffix, '%Y-%m-%dT%H-%M-%S')
+    except:
+        log.exception('get_datetime_from_suffix({})'.format(suffix))
+        dt = None
+    return dt
+
+def get_downloads_info_from_log_file(log_file, download_dir):
+    """
+log_file name: vipydown_download_SUBDIR_2020-11-28T18-54-07.log
+(old: vipydown_download_2020-11-28T18-54-07.log)
+
+[download] Destination: NEW- 5 minute arm workout-t2EypNxeABs.mp4
+...
+[download]  59.8% of 66.80MiB at  1.91MiB/s ETA 00:14
+...
+[download] 100% of 66.80MiB in 00:27
+
+[ffmpeg] Merging formats into "Cyklistika-P2hfIpaoH4g.webm"
+Deleting original file Cyklistika-P2hfIpaoH4g.f244.webm (pass -k to keep)
+Deleting original file Cyklistika-P2hfIpaoH4g.f251.webm (pass -k to keep)
+
+    """
+    downloads_info = {}
+    parts = os.path.splitext(os.path.split(log_file)[1])[0].split('_')
+    dest_str = '[download] Destination: '
+    end_str = '[download] 100% of '
+    merge_str = '[ffmpeg] Merging formats into '
+    st = os.stat(log_file)
+    download_info = {}
+
+    def add_download_info():
+        bfn = download_info['filename']
+        parts = bfn.split('.')
+        if len(parts) >= 3:
+            k = '.'.join(bfn.split('.')[:-2])
+        else:
+            k = parts[0]
+        downloads_info[k] = download_info
+
+    with open(log_file) as f:
+        for line in f.readlines():
+            if not line.strip():
+                continue
+
+            if line.startswith(dest_str):
+                if download_info:
+                    add_download_info()
+
+                download_info = {
+                    'log_file': log_file, 'download_dir': download_dir,
+                    'download_subdir': '', 'download_started': None, 'status': 'unknown',
+                    'filename': '', 'filesize': '', 'download_completed': None,
+                }
+                if len(parts) == 3:
+                    #old log filename format
+                    download_info['download_subdir'] = ''
+                    download_info['download_started'] = get_datetime_from_suffix(parts[2])
+                elif len(parts) >= 4:
+                    #new log filename format
+                    download_info['download_subdir'] = parts[2]
+                    download_info['download_started'] = get_datetime_from_suffix(parts[3])
+
+                download_info['filename'] = line.strip()[len(dest_str):]
+                download_info['status'] = 'download_started'
+
+            if line.startswith(end_str):
+                download_info['status'] = 'download_completed'
+                download_info['download_completed'] = datetime.datetime.fromtimestamp(st.st_atime)
+                eparts = line.strip().split(' ')
+                if len(eparts) >= 4:
+                    download_info['filesize'] = eparts[3]
+                add_download_info()
+                download_info = {}
+
+            if line.startswith(merge_str):
+                fn = line[len(merge_str):].strip().strip('"')
+                k = os.path.splitext(fn)[0]
+                if k in downloads_info:
+                    downloads_info[k]['filename'] = fn
+
+    return downloads_info.values()
+
+def get_download_info(log_dir, download_dir):
+    """Return html text info about downloaded or beeing downloaded files
+    Using log files in the log_dir
+    """
+    lines = []
+    for log_file in sorted(glob.glob(os.path.join(log_dir, f'{SCRIPT_BASE}_download_*.log')), reverse=True):
+        #fn = os.path.join(log_dir, basefn)
+        log.info(log_file)
+        for download_info in get_downloads_info_from_log_file(log_file, download_dir):
+            if not download_info['filename']:
+                continue
+            rec = {}
+            rec['File'] = download_info['filename']
+            if download_info['download_subdir']:
+                rec['Subfolder'] = download_info['download_subdir']
+            if download_info['download_completed']:
+                rec['Downloaded'] = download_info['download_completed']
+            else:
+                rec['Download started'] = download_info['download_started']
+            line = ' '.join(['<b>{}:</b> {}'.format(*kv) for kv in rec.items()])
+            lines.append(line)
+    return '<br />'.join(lines)
 
 def install(upgrade=''):
     """https://stackoverflow.com/questions/12332975/installing-python-module-within-code
@@ -112,13 +256,28 @@ def run_install():
     res = install(upgrade=kwargs.get('upgrade'))
     print(res)
 
+def is_server_running(**kwargs):
+    url = get_client_url(**kwargs)
+    try:
+        f = request.urlopen(url)
+        if f.status == 200:
+            return True
+    except:
+        pass
+    return False
+
 def run_server():
     install(upgrade='1')
     import http.server as server
     server_class = server.HTTPServer
     class Handler(server.CGIHTTPRequestHandler):
         cgi_directories = ['/', '.']
+
     kwargs = get_kwargs()
+    if is_server_running(**kwargs):
+        log.info('{SCRIPT_BASE} server is already running.')
+        return
+
     suffix = get_now_suffix()
     log.addHandler(logging.FileHandler(
         os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_server_{suffix}.log')
@@ -130,25 +289,30 @@ def run_server():
     run_client()
     httpd.serve_forever()
 
-def run_client():
-    import webbrowser
-    kwargs = get_kwargs()
+def get_client_url(**kwargs):
+    """Return url at which the server is accessible in web browser"""
     if not kwargs['host']:
         kwargs['host'] = 'localhost'
     url = f'http://{kwargs["host"]}:{kwargs["port"]}/{SCRIPT_NAME}'
+    return url
+
+def run_client():
+    import webbrowser
+    kwargs = get_kwargs()
+    url = get_client_url(**kwargs)
     webbrowser.open(url)
 
-def run_download(urls=[], skip_install=False):
+def run_download(urls=[], download_subdir='', skip_install=False):
     #see server.CGIHTTPRequestHandler run_cgi
     if not skip_install:
         install()
     cmd = os.path.join(sys.prefix, 'python.exe')
     result = {}
     env = {}
-    kwargs = get_kwargs()
+    kwargs = get_kwargs(download_subdir=download_subdir)
 
     cur_dir = os.getcwd()
-    os.chdir(kwargs['download_dir'])
+    os.chdir(kwargs['download_fulldir'])
     try:
         cmdline = [cmd, '-m', 'youtube_dl']
         if urls:
@@ -156,7 +320,7 @@ def run_download(urls=[], skip_install=False):
                 urls = [u.strip() for u in urls.split()]
             cmdline.extend(urls)
         suffix = get_now_suffix()
-        log_fn = os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_download_{suffix}.log')
+        log_fn = os.path.join(kwargs['log_dir'], f'{SCRIPT_BASE}_download_{download_subdir}_{suffix}.log')
         f = open(log_fn, 'a')
         try:
             proc = subprocess.Popen(cmdline, stdout=f, stderr=f)
@@ -300,25 +464,25 @@ if __name__ == '__main__':
         print(f'  ... (other or no ACTION)')
         print(f'      - run as cgi script,')
         print(f'        if {SCRIPT_LNK} not found, "setup" is called instead')
-    elif arg == 'server':
+    elif arg in ['server', 'run_server']:
         add_handler()
         run_server()
-    elif arg == 'client':
+    elif arg in ['client', 'run_client']:
         add_handler()
         run_client()
-    elif arg == 'download':
+    elif arg in ['download', 'run_download']:
         add_handler()
         run_download(urls=sys.argv[2:])
-    elif arg == 'install':
+    elif arg in ['install', 'run_install']:
         add_handler()
         run_install()
-    elif arg == 'make_lnk':
+    elif arg in ['make_lnk', 'run_make_lnk']:
         add_handler()
         run_make_lnk()
-    elif arg == 'rm_lnk':
+    elif arg in ['rm_lnk', 'run_rm_lnk']:
         add_handler()
         run_rm_lnk()
-    elif arg == 'setup':
+    elif arg in ['setup', 'run_setup']:
         add_handler()
         run_setup()
     else:
