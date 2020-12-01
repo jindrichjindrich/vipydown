@@ -11,7 +11,7 @@ SCRIPT_FULLNAME =  os.path.abspath(__file__)
 ROOT_DIR, SCRIPT_NAME = os.path.split(SCRIPT_FULLNAME)
 SCRIPT_BASE = os.path.splitext(SCRIPT_NAME)[0] # bare script name without an extension
 SCRIPT_LNK =  SCRIPT_BASE + '.lnk'
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 f"""
 Python standalone script/module to launch local server/web browser gui
 for downloading youtube videos using third party youtube_dl module
@@ -20,6 +20,8 @@ Run "python {SCRIPT_NAME} ?" for help.
 """
 
 """
+v1.0.1 2020-12-01
+- fixed bug reading logs when already downloaded file is beeing reported
 v1.0.0 2020-11-29
 - showing already downloaded files by parsing log files
 - allowing to use download_dir subfolder (to group similar files)
@@ -169,7 +171,9 @@ Deleting original file Cyklistika-P2hfIpaoH4g.f251.webm (pass -k to keep)
     download_info = {}
 
     def add_download_info():
-        bfn = download_info['filename']
+        bfn = download_info.get('filename', '')
+        if not bfn:
+            return
         parts = bfn.split('.')
         if len(parts) >= 3:
             k = '.'.join(bfn.split('.')[:-2])
