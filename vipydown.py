@@ -66,6 +66,7 @@ def run_cgi():
 <!-- Run in cmd window "python {SCRIPT_NAME} help" to get help on {SCRIPT_NAME} -->
 <head>
     <title>Video (using Python) Download </title>
+    <meta charset="UTF-8">
 </head>
 <body>
 <h1>List of addresses of Youtube videos to download </h1>
