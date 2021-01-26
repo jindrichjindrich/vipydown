@@ -7,11 +7,19 @@ import datetime
 import shutil
 from urllib import request
 
+#https://stackoverflow.com/questions/9322410/set-encoding-in-python-3-cgi-scripts
+#  this did not work:
+#import locale
+#locale.getpreferredencoding = lambda: 'UTF-8'
+#  this works:
+import codecs
+sys.stdout = codecs.getwriter('utf8')(sys.stdout.buffer)
+
 SCRIPT_FULLNAME =  os.path.abspath(__file__)
 ROOT_DIR, SCRIPT_NAME = os.path.split(SCRIPT_FULLNAME)
 SCRIPT_BASE = os.path.splitext(SCRIPT_NAME)[0] # bare script name without an extension
 SCRIPT_LNK =  SCRIPT_BASE + '.lnk'
-VERSION = '1.0.1'
+VERSION = '1.0.2'
 f"""
 Python standalone script/module to launch local server/web browser gui
 for downloading youtube videos using third party youtube_dl module
@@ -19,12 +27,23 @@ for downloading youtube videos using third party youtube_dl module
 Run "python {SCRIPT_NAME} ?" for help.
 """
 
-"""
-v1.0.1 2020-12-01
-- fixed bug reading logs when already downloaded file is beeing reported
-v1.0.0 2020-11-29
-- showing already downloaded files by parsing log files
-- allowing to use download_dir subfolder (to group similar files)
+VERSION_HISTORY = """
+-
+  version: v1.0.2
+  date: 2021-01-26
+  msg:
+    - fixed cgi print output to utf-8 encoding (was cp1250), see codecs above
+-
+  version: v1.0.1
+  date: 2020-12-01
+  msg:
+    - fixed bug reading logs when already downloaded file is beeing reported
+-
+  version: v1.0.0
+  date: 2020-11-29
+  msg:
+    - showing already downloaded files by parsing log files
+    - allowing to use download_dir subfolder (to group similar files)
 
 """
 
@@ -59,7 +78,7 @@ def run_cgi():
 
     download_info = get_download_info(kwargs['log_dir'], kwargs['download_dir'])
 
-    print('Content-Type: text/html')
+    print('Content-Type: text/html; charset=utf-8')
     print()
     print(f"""
 <html>
