@@ -8,3 +8,4 @@ vipydown.egg-info/
 dist/
 build/
 docs/
+site/
