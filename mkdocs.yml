@@ -1,0 +1,6 @@
+﻿site_name: Vipydown
+nav:
+  - Home: README.md
+docs_dir: docs
+dev_addr: 127.0.0.1:8001
+

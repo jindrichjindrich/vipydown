@@ -4,4 +4,7 @@ wingdbstub.py
 vipydown_lnk.vbs
 log/
 __pycache__/
-
+vipydown.egg-info/
+dist/
+build/
+docs/

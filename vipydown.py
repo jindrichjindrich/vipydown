@@ -1,4 +1,11 @@
-﻿import os
+﻿"""
+Python standalone script/module to launch local server/web browser gui
+for downloading youtube videos using third party youtube_dl module
+
+Run "python vipydown.py ?" for help.
+"""
+
+import os
 import sys
 import glob
 import logging
@@ -19,27 +26,21 @@ SCRIPT_FULLNAME =  os.path.abspath(__file__)
 ROOT_DIR, SCRIPT_NAME = os.path.split(SCRIPT_FULLNAME)
 SCRIPT_BASE = os.path.splitext(SCRIPT_NAME)[0] # bare script name without an extension
 SCRIPT_LNK =  SCRIPT_BASE + '.lnk'
-VERSION = '1.0.2'
-f"""
-Python standalone script/module to launch local server/web browser gui
-for downloading youtube videos using third party youtube_dl module
-
-Run "python {SCRIPT_NAME} ?" for help.
-"""
+__version__ = '0.1.2'
 
 VERSION_HISTORY = """
 -
-  version: v1.0.2
+  version: 0.1.2
   date: 2021-01-26
   msg:
     - fixed cgi print output to utf-8 encoding (was cp1250), see codecs above
 -
-  version: v1.0.1
+  version: 0.1.1
   date: 2020-12-01
   msg:
     - fixed bug reading logs when already downloaded file is beeing reported
 -
-  version: v1.0.0
+  version: 0.1.0
   date: 2020-11-29
   msg:
     - showing already downloaded files by parsing log files
@@ -54,6 +55,12 @@ except ImportError:
     pass
 
 def run_cgi():
+    """Run as cgi script
+
+    Handle submitted youtube URLs, if any, 
+    and print html page alowing to enter them.
+    Also, render the info about already downloaded files.
+    """
     import cgi
 
     import cgitb
@@ -155,6 +162,7 @@ def get_kwargs(**fkwargs):
     return kwargs
 
 def get_now_suffix():
+    """Return ISO format date/time with ':' replaced with '-'"""
     return datetime.datetime.now().isoformat()[:19].replace(':','-')
 
 def get_datetime_from_suffix(suffix):
@@ -167,7 +175,8 @@ def get_datetime_from_suffix(suffix):
     return dt
 
 def get_downloads_info_from_log_file(log_file, download_dir):
-    """
+    """Parse log files and return dict with download info.
+
 log_file name: vipydown_download_SUBDIR_2020-11-28T18-54-07.log
 (old: vipydown_download_2020-11-28T18-54-07.log)
 
@@ -246,6 +255,7 @@ Deleting original file Cyklistika-P2hfIpaoH4g.f251.webm (pass -k to keep)
 
 def get_download_info(log_dir, download_dir):
     """Return html text info about downloaded or beeing downloaded files
+
     Using log files in the log_dir
     """
     lines = []
@@ -271,6 +281,11 @@ def get_download_info(log_dir, download_dir):
     return '<br />'.join(lines)
 
 def install(upgrade=''):
+    """Install the required Python module (youtube_dl)
+
+    If upgrade is non empty, the already present module will be upgraded
+    to the latest version
+    """
     """https://stackoverflow.com/questions/12332975/installing-python-module-within-code
     """
     mname = 'youtube_dl'
@@ -289,11 +304,13 @@ def install(upgrade=''):
     return res.decode()
 
 def run_install():
+    """Callable from command line, call install()"""
     kwargs = get_kwargs()
     res = install(upgrade=kwargs.get('upgrade'))
     print(res)
 
 def is_server_running(**kwargs):
+    f"""Check if {SCRIPT_BASE} server is running"""
     url = get_client_url(**kwargs)
     try:
         f = request.urlopen(url, timeout=5)
@@ -304,6 +321,7 @@ def is_server_running(**kwargs):
     return False
 
 def run_server():
+    f"""Run the {SCRIPT_BASE} server, server_forever"""
     import http.server as server
     server_class = server.HTTPServer
     class Handler(server.CGIHTTPRequestHandler):
@@ -340,6 +358,7 @@ def get_client_url(**kwargs):
     return url
 
 def run_client():
+    f"""Launch web browser pointing to {SCRIPT_BASE} client URL"""
     import webbrowser
     kwargs = get_kwargs()
     url = get_client_url(**kwargs)
@@ -347,6 +366,7 @@ def run_client():
     webbrowser.open(url)
 
 def run_download(urls=[], download_subdir='', skip_install=False):
+    """Use youtube_dl to download videos specified by their urls"""
     #see server.CGIHTTPRequestHandler run_cgi
     if not skip_install:
         install()
@@ -400,6 +420,7 @@ def run_download(urls=[], download_subdir='', skip_install=False):
     return result #{'stdout': stdout, 'stderr': stderr, 'status': status}
 
 def get_lnk_filename():
+    f"""Return full path name of the .lnk file for starting {SCRIPT_}"""
     return os.path.join(ROOT_DIR, BASE_LNK)
 
 def _get_lnk_dic():
@@ -414,7 +435,8 @@ def _get_lnk_dic():
     return locals().copy()
 
 def run_rm_lnk():
-    f"""Remove all lnk files.
+    f"""Remove all .lnk files.
+
     I.e., {SCRIPT_NAME} will think it was not installed yet. Also, remove
     all the executable trash the {SCRIPT_NAME} makes if it will be removed.
     """
@@ -476,16 +498,16 @@ def run_setup():
     install(upgrade='1')
     run_make_lnk()
 
-def add_handler():
+def _add_handler():
     log.addHandler(logging.StreamHandler())
     log.setLevel(logging.INFO)
 
-if __name__ == '__main__':
+def main():
     arg = sys.argv[1] if sys.argv[1:] else ''
     if arg.lstrip('-') in ['help', 'h', '?']:
         kwargs = get_kwargs()
         print(f'Usage: python {SCRIPT_NAME} ACTION [param1=value1] ... (python >= 3.6 in PATH required)')
-        print(f'Version: {VERSION}')
+        print(f'Version: {__version__}')
         print(f'ACTIONs:')
         print(f'  help - (or "[-]h", "[-]?") show this help text')
         print( '  server [port={port}] [host={host}] [data_dir={data_dir}]'.format(**kwargs))
@@ -510,29 +532,32 @@ if __name__ == '__main__':
         print(f'      - run as cgi script,')
         print(f'        if {SCRIPT_LNK} not found, "setup" is called instead')
     elif arg in ['server', 'run_server']:
-        add_handler()
+        _add_handler()
         run_server()
     elif arg in ['client', 'run_client']:
-        add_handler()
+        _add_handler()
         run_client()
     elif arg in ['download', 'run_download']:
-        add_handler()
+        _add_handler()
         run_download(urls=sys.argv[2:])
     elif arg in ['install', 'run_install']:
-        add_handler()
+        _add_handler()
         run_install()
     elif arg in ['make_lnk', 'run_make_lnk']:
-        add_handler()
+        _add_handler()
         run_make_lnk()
     elif arg in ['rm_lnk', 'run_rm_lnk']:
-        add_handler()
+        _add_handler()
         run_rm_lnk()
     elif arg in ['setup', 'run_setup']:
-        add_handler()
+        _add_handler()
         run_setup()
     else:
         if not is_set_up():
-            add_handler()
+            _add_handler()
             run_setup()
         else:
             run_cgi()
+
+if __name__ == '__main__':
+    main()
